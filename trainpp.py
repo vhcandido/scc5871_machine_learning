@@ -28,7 +28,6 @@ def strAgeToDays(age_str):
 	    age_split = age_str.split()
     except:
         return 0
-    print age_split
 
     if 'year' in age_str:
         age = 365 * int(age_split[0])
