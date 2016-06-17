@@ -21,10 +21,25 @@ def strDateToSeconds(strDate):
 	epoch = datetime.datetime.utcfromtimestamp(0)
 	return (inputDate-epoch).total_seconds()
 
-def strAgeToDays(age):
-	age = age if len(age)>0 else "0 days"
-	theAge = age.split(' ')
-	return int(theAge[0])*(365 if theAge[1][0]=='y' else 30 if theAge[1][0]=='m' else 7 if theAge[1][0]=='w' else 1)
+def strAgeToDays(age_str):
+    age = 0
+
+    try:
+	    age_split = age_str.split()
+    except:
+        return 0
+    print age_split
+
+    if 'year' in age_str:
+        age = 365 * int(age_split[0])
+    elif 'month' in age_str:
+        age = 30 * int(age_split[0])
+    elif 'week' in age_str:
+        age = 7 * int(age_split[0])
+    elif 'day' in age_str:
+        age = int(age_split[0])
+
+    return age
 
 for row in reader:
 	oldheader=row
