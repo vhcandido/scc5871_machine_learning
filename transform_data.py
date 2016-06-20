@@ -53,6 +53,23 @@ def get_colorB(color):
         return c[1].split()[0]
     return 'None'
 
+
+def get_breedA(breed):
+    b = breed.split('/')
+    return b[0].split()[0]
+
+def get_breedB(breed):
+    b = breed.split('/')
+    if len(b) > 1:
+        return b[1].split()[0]
+    return 'None'
+
+def get_age_cat(age):
+    if age <= 365:
+        return 'Baby'
+    else:
+        return 'Adult'
+
 def main(dataset, transf, out_file):
 
     if transf['name_to_isnamed']:
@@ -70,6 +87,16 @@ def main(dataset, transf, out_file):
         dataset['AgeuponOutcome'] = dataset.AgeuponOutcome.apply(get_age_days)
         #dataset.loc[dataset['AgeuponOutcome'].isnull(), 'AgeuponOutcome'] = dataset['AgeuponOutcome'].median()
 
+    if transf['age_to_categorical']:
+        dataset['AgeuponOutcome'] = dataset.AgeuponOutcome.apply(get_age_days)
+        dataset['AgeuponOutcome'] = dataset.AgeuponOutcome.apply(get_age_cat)
+
+
+    if transf['breed_to_AB']:
+        dataset['BreedA'] = dataset.Breed.apply(get_breedA)
+        dataset['BreedB'] = dataset.Breed.apply(get_breedB)
+        dataset.drop(['Breed'], inplace=True, axis=1)
+
     if transf['breed_to_mix_pure']:
         dataset['IsMix'] = dataset.Breed.apply(get_mix_breed)
 
@@ -79,12 +106,13 @@ def main(dataset, transf, out_file):
         dataset.drop(['Color'], inplace=True, axis=1)
 
     if transf['outcomes']:
-        #dataset['OutcomeType'] = dataset['OutcomeType'].map({'Adoption':1, 'Return_to_owner':4, 'Euthanasia':3, 'Adoption':0, 'Transfer':5, 'Died':2})
-        dataset['Adoption'] = (dataset['OutcomeType'] == 'Adoption')
-        dataset['Died'] = (dataset['OutcomeType'] == 'Died')
-        dataset['Euthanasia'] = (dataset['OutcomeType'] == 'Euthanasia')
-        dataset['Return_to_owner'] = (dataset['OutcomeType'] == 'Return_to_owner')
-        dataset['Transfer'] = (dataset['OutcomeType'] == 'Transfer')
+        dataset['OutcomeType'] = dataset['OutcomeType'].map({'Adoption':1, 'Return_to_owner':4, 'Euthanasia':3, 'Transfer':5, 'Died':2})
+        '''target = ['Adoption', 'Died', 'Euthanasia', 'Return_to_owner', 'Transfer']
+        for col in target:
+            dataset[col] = 0
+            dataset.loc[dataset['OutcomeType'] == col, col] = 1
+        #dataset['Adoption'] = (dataset['OutcomeType'] == 'Adoption')
+        '''
 
     # write to CSV file
     dataset.to_csv(out_file, index=False)
@@ -101,8 +129,10 @@ if __name__ == '__main__':
             'name_to_isnamed' : True,
             'datetime_to_sec' : True,
             'sex_to_gender_isintact' : True,
-            'age_to_days' : True,
-            'breed_to_mix_pure' : True,
+            'age_to_days' : False,
+            'age_to_categorical' : True,
+            'breed_to_mix_pure' : False,
+            'breed_to_AB' : True,
             'breed_to_size' : False, # not implemented
             'color_to_AB' : True,
             'outcomes' : True
