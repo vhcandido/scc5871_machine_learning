@@ -78,6 +78,7 @@ def main(dataset, transf, out_file):
 
     if transf['datetime_to_sec']:
         dataset['DateTime'] = dataset.DateTime.apply(get_datetime_seconds)
+        dataset['DateTime'] -= min(dataset['DateTime'])
 
     if transf['sex_to_gender_isintact']:
         dataset['Gender'] = dataset.SexuponOutcome.apply(get_gender)
