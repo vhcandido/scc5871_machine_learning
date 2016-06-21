@@ -76,6 +76,10 @@ def main(dataset, transf, out_file):
     if transf['name_to_isnamed']:
         dataset['IsNamed'] = dataset.Name.notnull()
 
+    if transf['datetime_split']:
+        dataset['Date'] = dataset.DateTime.apply(lambda(x): x.split(' ')[0])
+        dataset['Time'] = dataset.DateTime.apply(lambda(x): x.split(' ')[1])
+
     if transf['datetime_to_sec']:
         dataset['DateTime'] = dataset.DateTime.apply(get_datetime_seconds)
         dataset['DateTime'] -= min(dataset['DateTime'])
@@ -142,6 +146,7 @@ if __name__ == '__main__':
     transf = {
             'name_to_sex' : False, # not implemented
             'name_to_isnamed' : True,
+            'datetime_split': True,
             'datetime_to_sec' : True,
             'sex_to_gender_isintact' : True,
             'age_to_days' : False,
