@@ -82,7 +82,7 @@ def main(dataset, transf, out_file):
     if transf['sex_to_gender_isintact']:
         dataset['Gender'] = dataset.SexuponOutcome.apply(get_gender)
         dataset['IsIntact'] = dataset.SexuponOutcome.apply(get_isintact)
-        dataset.drop(['SexuponOutcome'], inplace=True, axis=1)
+        #dataset.drop(['SexuponOutcome'], inplace=True, axis=1)
 
     if transf['age_to_days']:
         dataset['AgeuponOutcome'] = dataset.AgeuponOutcome.apply(get_age_days)
@@ -96,15 +96,20 @@ def main(dataset, transf, out_file):
     if transf['breed_to_AB']:
         dataset['BreedA'] = dataset.Breed.apply(get_breedA)
         dataset['BreedB'] = dataset.Breed.apply(get_breedB)
-        dataset.drop(['Breed'], inplace=True, axis=1)
+        #dataset.drop(['Breed'], inplace=True, axis=1)
 
     if transf['breed_to_mix_pure']:
         dataset['IsMix'] = dataset.Breed.apply(get_mix_breed)
 
+        if transf['breed_to_AB']:
+            # remove mix from breedA and B
+            dataset['BreedA'] = dataset.BreedA.apply(lambda(s): s.replace(' Mix','')
+            dataset['BreedB'] = dataset.BreedB.apply(lambda(s): s.replace(' Mix','')
+
     if transf['color_to_AB']:
         dataset['ColorA'] = dataset.Color.apply(get_colorA)
         dataset['ColorB'] = dataset.Color.apply(get_colorB)
-        dataset.drop(['Color'], inplace=True, axis=1)
+        #dataset.drop(['Color'], inplace=True, axis=1)
 
     if transf['outcome_encode']:
         le = LabelEncoder()
