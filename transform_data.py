@@ -1,4 +1,5 @@
 from datetime import datetime as dt
+from sklearn.preprocessing import LabelEncoder, LabelBinarizer
 import pandas as pd
 import pdb
 
@@ -105,14 +106,22 @@ def main(dataset, transf, out_file):
         dataset['ColorB'] = dataset.Color.apply(get_colorB)
         dataset.drop(['Color'], inplace=True, axis=1)
 
-    if transf['outcomes']:
-        dataset['OutcomeType'] = dataset['OutcomeType'].map({'Adoption':1, 'Return_to_owner':4, 'Euthanasia':3, 'Transfer':5, 'Died':2})
-        '''target = ['Adoption', 'Died', 'Euthanasia', 'Return_to_owner', 'Transfer']
-        for col in target:
-            dataset[col] = 0
-            dataset.loc[dataset['OutcomeType'] == col, col] = 1
-        #dataset['Adoption'] = (dataset['OutcomeType'] == 'Adoption')
-        '''
+    if transf['outcome_encode']:
+        le = LabelEncoder()
+        target = ['Adoption', 'Died', 'Euthanasia', 'Return_to_owner',
+                'Transfer']
+        le.fit(target)
+        dataset['OutcomeType'] = le.transform(dataset['OutcomeType'])
+        #dataset['OutcomeType'] = dataset['OutcomeType'].map({'Adoption':1, 'Return_to_owner':4, 'Euthanasia':3, 'Transfer':5, 'Died':2})
+
+    if transf['outcome_binarize']:
+        lb = LabelBinarizer()
+        target = ['Adoption', 'Died', 'Euthanasia', 'Return_to_owner', 'Transfer']
+        lb.fit(target)
+        out_bin = lb.transform(dataset['OutcomeType'])
+        dataset = pd.concat([ dataset,
+            pd.DataFrame(out_bin, columns=target) ],
+            axis=1)
 
     # write to CSV file
     dataset.to_csv(out_file, index=False)
@@ -135,12 +144,14 @@ if __name__ == '__main__':
             'breed_to_AB' : True,
             'breed_to_size' : False, # not implemented
             'color_to_AB' : True,
-            'outcomes' : True
+            'outcome_encode' : True,
+            'outcome_binarize' : False
             }
     main(train_data, transf, path + 'transformed_train.csv')
 
     # transform test data
-    transf['outcomes'] = False
+    transf['outcome_binarize'] = False
+    transf['outcome_encode'] = False
     main(test_data, transf, path + 'transformed_test.csv')
 
 #
