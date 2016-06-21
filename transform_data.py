@@ -104,8 +104,8 @@ def main(dataset, transf, out_file):
 
         if transf['breed_to_AB']:
             # remove mix from breedA and B
-            dataset['BreedA'] = dataset.BreedA.apply(lambda(s): s.replace(' Mix','')
-            dataset['BreedB'] = dataset.BreedB.apply(lambda(s): s.replace(' Mix','')
+            dataset['BreedA'] = dataset.BreedA.apply(lambda(s): s.replace(' Mix',''))
+            dataset['BreedB'] = dataset.BreedB.apply(lambda(s): s.replace(' Mix',''))
 
     if transf['color_to_AB']:
         dataset['ColorA'] = dataset.Color.apply(get_colorA)
@@ -117,8 +117,8 @@ def main(dataset, transf, out_file):
         target = ['Adoption', 'Died', 'Euthanasia', 'Return_to_owner',
                 'Transfer']
         le.fit(target)
-        dataset['OutcomeType'] = le.transform(dataset['OutcomeType'])
-        #dataset['OutcomeType'] = dataset['OutcomeType'].map({'Adoption':1, 'Return_to_owner':4, 'Euthanasia':3, 'Transfer':5, 'Died':2})
+        dataset['OutcomeTypeEncoded'] = le.transform(dataset['OutcomeType'])
+        #dataset['OutcomeTypeEncoded'] = dataset['OutcomeType'].map({'Adoption':1, 'Return_to_owner':4, 'Euthanasia':3, 'Transfer':5, 'Died':2})
 
     if transf['outcome_binarize']:
         lb = LabelBinarizer()
@@ -153,6 +153,7 @@ if __name__ == '__main__':
             'outcome_encode' : True,
             'outcome_binarize' : False
             }
+    transf = dict.fromkeys(transf, True)
     main(train_data, transf, path + 'transformed_train.csv')
 
     # transform test data
