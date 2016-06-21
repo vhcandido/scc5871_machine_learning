@@ -73,6 +73,7 @@ def get_age_cat(age):
 
 def main(dataset, transf, out_file):
 
+
     if transf['name_to_isnamed']:
         dataset['IsNamed'] = dataset.Name.notnull()
 
@@ -89,13 +90,20 @@ def main(dataset, transf, out_file):
         dataset['IsIntact'] = dataset.SexuponOutcome.apply(get_isintact)
         #dataset.drop(['SexuponOutcome'], inplace=True, axis=1)
 
+    if transf['name_to_sex']:
+        if transf['sex_to_gender_isintact']:
+            d = {'Hickory':'Male','Ice':'Male','Poodle':'Female','Fluffy':'Male','Pepy':'Female','Ursula':'Female','Grace':'Female','Chris':'Male','Daisy':'Female','Husky':'Male','Zara':'Female','Jan':'Male','Tinkerbell':'Female','Pinto':'Male','Karma':'Female','Taco':'Male','Ford':'Male','Diego':'Male','Teri':'Female','Beans':'Female','Precious':'Female','Maple':'Female','Bruce':'Male','Brown Dog':'Male','Packard':'Male','Aj':'Male','Nick':'Male','Spirit':'Male','Idris':'Male','Ulrika':'Female','Cyprus':'Unknown','Doodle':'Female','Boo Boo':'Female','Jd':'Male','Ash':'Male','K.C.':'Male','Lando':'Male','Uliana':'Female','Sissy':'Female','Moon':'Female','Dexter':'Male','Oliver':'Male','Chula':'Female','Serrano':'Unknown','Ulysses':'Male','Birch':'Unknown','Pumkin':'Unknown','Lucky':'Male','Oak':'Male','Jordan':'Male','Jamie':'Male','Monkey':'Unknown','Cedar':'Female'}
+            r = dataset['Name'].loc[dataset['Gender'] == 'Unknown'].loc[dataset['Name'].isnull()==False].map(d)
+            for i in r.index:
+                dataset.iloc[i, dataset.columns.get_loc('Gender')] = r[i]
+
     if transf['age_to_days']:
-        dataset['AgeuponOutcome'] = dataset.AgeuponOutcome.apply(get_age_days)
+        dataset['AgeInDays'] = dataset.AgeuponOutcome.apply(get_age_days)
         #dataset.loc[dataset['AgeuponOutcome'].isnull(), 'AgeuponOutcome'] = dataset['AgeuponOutcome'].median()
 
     if transf['age_to_categorical']:
-        dataset['AgeuponOutcome'] = dataset.AgeuponOutcome.apply(get_age_days)
-        dataset['AgeuponOutcome'] = dataset.AgeuponOutcome.apply(get_age_cat)
+        dataset['AgeInCategory'] = dataset.AgeuponOutcome.apply(get_age_days)
+        dataset['AgeInCategory'] = dataset.AgeInCategory.apply(get_age_cat)
 
 
     if transf['breed_to_AB']:
@@ -144,7 +152,7 @@ if __name__ == '__main__':
 
     # transform train data
     transf = {
-            'name_to_sex' : False, # not implemented
+            'name_to_sex' : True,
             'name_to_isnamed' : True,
             'datetime_split': True,
             'datetime_to_sec' : True,
