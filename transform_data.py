@@ -71,6 +71,18 @@ def get_age_cat(age):
     else:
         return 'Adult'
 
+def datetime_to_date(d):
+    epoch = dt.utcfromtimestamp(0)
+    d = d.split(' ')[0]
+    date = dt.strptime(d, '%Y-%m-%d')
+    return (date-epoch).days
+
+def datetime_to_time(d):
+    epoch = dt.utcfromtimestamp(0)
+    d = d.split(' ')[1]
+    time = dt.strptime('1970-01-01 '+d, '%Y-%m-%d %H:%M:%S')
+    return (time-epoch).total_seconds()
+
 def main(dataset, transf, out_file):
 
 
@@ -78,12 +90,13 @@ def main(dataset, transf, out_file):
         dataset['IsNamed'] = dataset.Name.notnull()
 
     if transf['datetime_split']:
-        dataset['Date'] = dataset.DateTime.apply(lambda(x): x.split(' ')[0])
-        dataset['Time'] = dataset.DateTime.apply(lambda(x): x.split(' ')[1])
+        dataset['Date'] = dataset.DateTime.apply(datetime_to_date)
+        #dataset['Date'] -= min(dataset['Date'])
+        dataset['Time'] = dataset.DateTime.apply(datetime_to_time)
 
     if transf['datetime_to_sec']:
         dataset['DateTime'] = dataset.DateTime.apply(get_datetime_seconds)
-        dataset['DateTime'] -= min(dataset['DateTime'])
+        #dataset['DateTime'] -= min(dataset['DateTime'])
 
     if transf['sex_to_gender_isintact']:
         dataset['Gender'] = dataset.SexuponOutcome.apply(get_gender)
