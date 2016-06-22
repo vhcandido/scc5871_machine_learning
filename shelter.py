@@ -1,13 +1,17 @@
 import pandas as pd
 import numpy as np
+import scipy as sp
 import pdb
 import sys
 
-from sklearn import preprocessing
+from sklearn.preprocessing import LabelEncoder, LabelBinarizer
+from sklearn.metrics import log_loss
 
 from sklearn.cross_validation import KFold
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.naive_bayes import GaussianNB
+
+from numpy import var, average, mean, median
 
 # Extracted from https://www.kaggle.com/wiki/LogarithmicLoss
 def logloss(act, pred):
@@ -33,10 +37,59 @@ def load_file(path, drop_attr=[]):
     in_file = pd.read_csv(path)
 
     # drop selected columns
-    in_file = in_file.drop(drop_attr, axis=1)
+    in_file.drop(drop_attr, inplace=True, axis=1)
 
     #return prepare_data(in_file)
     return in_file
+
+
+def data_fold(df, target, k, shuffle=False):
+    n_labels = df.axes[1].size
+    source = df.values
+
+    kf = KFold(len(source), k, shuffle)
+
+    n_source = pd.get_dummies(df)
+
+    folds = []
+    for train_indices, trial_indices in kf:
+        # This is the way to access values in a pandas DataFrame
+        folds.append({'train': {'source': n_source.ix[train_indices, :],
+                                'target': target[train_indices]},
+                      'trial': {'source': n_source.ix[trial_indices, :],
+                                'target': target[trial_indices]}})
+    return folds
+
+
+def learn_and_test(cls, folds):
+    worst = auc_total = idx = 0
+    best = 999999999.0
+    loss = []
+
+    lb = LabelBinarizer()
+    lb.fit(['Adoption','Died','Euthanasia','Return_to_owner','Transfer'])
+
+    for fold in folds:
+        print 'Fold', idx+1
+        print 'Fitting'
+        cls.fit(fold['train']['source'], fold['train']['target'])
+
+        print 'Predicting'
+        pred_classes = cls.predict_proba(fold['trial']['source'])
+        actual_classes = lb.transform(fold['trial']['target'])
+
+        ll = logloss(actual_classes, pred_classes)
+        ll2 = log_loss(actual_classes, pred_classes)
+        loss.append(ll2)
+        print ll, sum(ll), ll2
+
+        best = (loss[idx] if loss[idx] <  best else best)
+        worst = (loss[idx] if loss[idx] > worst else best)
+        idx += 1
+
+    return {'best': str(best).zfill(15), 'worst': str(worst).zfill(15), 'mean': str(mean(loss)).zfill(15),
+            'variance': str(var(loss)).zfill(15), 'median': str(median(loss)).zfill(15),
+            'average': str(average(loss)).zfill(15), 'log-loss': loss}
 
 
 def main(classifier_name):
@@ -46,26 +99,36 @@ def main(classifier_name):
     test_file = data_path + 'transformed_test.csv'
 
 
+    print "Loading data"
     # loading test set
-    test_set = load_file(test_file, drop_attr=['ID'])
+    test_set = pd.read_csv(test_file)
     # loading train set
-    train_set = load_file(train_file, drop_attr=['AnimalID', 'OutcomeSubtype'])
+    train_set = pd.read_csv(train_file)
 
-    ''' OLD
-    train_outcome = train_set.OutcomeType
-    #train_outcome = train_set.values[0::,-5::]
+    # feature selection
     '''
+    cls_col = ['AgeuponOutcome', 'IsNamed', 'IsIntact', 'BreedA', 'AnimalType']
+    cls_col = ['AnimalID', 'Name', 'DateTime', 'OutcomeType', 'OutcomeSubtype',
+            'AnimalType', 'SexuponOutcome', 'AgeuponOutcome', 'Breed', 'Color',
+            'IsNamed', 'Date', 'Time', 'Gender', 'IsIntact', 'AgeInDays',
+            'AgeInCategory', 'BreedA', 'BreedB', 'IsMix', 'ColorA', 'ColorB',
+            'OutcomeTypeEncoded', 'Adoption', 'Died', 'Euthanasia',
+            'Return_to_owner', 'Transfer']
+    cls_col = ['ID', 'Name', 'DateTime', 'AnimalType', 'SexuponOutcome',
+    'AgeuponOutcome', 'Breed', 'Color', 'IsNamed', 'Date', 'Time', 'Gender',
+    'IsIntact', 'AgeInDays', 'AgeInCategory', 'BreedA', 'BreedB', 'IsMix',
+    'ColorA', 'ColorB']
     '''
-    lb = preprocessing.LabelBinarizer()
-    #lb = preprocessing.LabelEncoder()
-    lb.fit(['Adoption','Died','Euthanasia','Return_to_owner','Transfer'])
-    train_outcome = lb.transform(train_set['OutcomeType'])
-    '''
-    # won't be used anymore
-    train_outcome = train_set['OutcomeType']
-    train_set.drop(['OutcomeType'], inplace=True, axis=1)
-
+    cls_col = ['DateTime', 'AnimalType', 'SexuponOutcome',
+        'AgeuponOutcome', 'Breed', 'Color', 'IsNamed', 'Date', 'Time', 'Gender',
+        'IsIntact', 'AgeInDays', 'AgeInCategory', 'BreedA', 'BreedB', 'IsMix',
+        'ColorA', 'ColorB']
     # preparing data to classify
+    print "Preparing data"
+    train_outcome = train_set['OutcomeType']
+
+    train_set = train_set[cls_col]
+    test_set = test_set[cls_col]
     train_set = prepare_data(train_set)
     test_set = prepare_data(test_set)
 
@@ -83,21 +146,20 @@ def main(classifier_name):
         print("Decision Tree")
         pass
     #cls.fit(train_set.values[0::,0:-5:], train_outcome.values[0::, -5::])
-
-    # feature selection
-    cls_col = ['AgeuponOutcome', 'IsNamed', 'IsIntact', 'BreedA', 'AnimalType']
-    train_set = pd.DataFrame(train_set, columns=cls_col).values
-    test_set = pd.DataFrame(test_set, columns=cls_col).values
-
+    folds = data_fold(train_set, train_outcome, 10)
+    r = learn_and_test(cls, folds)
+    '''
+    print("Fitting")
+    cls.fit(train_set.values, train_outcome.values)
     print("Classifying")
-    cls.fit(train_set, train_outcome)
-    predictions = cls.predict_proba(test_set)
+    predictions = cls.predict_proba(test_set.values)
 
     # saving output
     print("Saving output")
     output = pd.DataFrame(predictions, columns=['Adoption','Died','Euthanasia','Return_to_owner','Transfer'])
     output.index += 1
     output.to_csv("out.csv", index_label='ID')
+    '''
 
 
 
