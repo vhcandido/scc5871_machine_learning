@@ -4,29 +4,35 @@ import scipy as sp
 import pdb
 import sys
 
+from time import time
+import random
+
 from sklearn.preprocessing import LabelEncoder, LabelBinarizer
 from sklearn.metrics import log_loss
 
-from sklearn.cross_validation import KFold
+from sklearn.cross_validation import KFold, StratifiedShuffleSplit
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.naive_bayes import GaussianNB
 
 from numpy import var, average, mean, median
+from math import log
 
 # Extracted from https://www.kaggle.com/wiki/LogarithmicLoss
-def logloss(act, pred):
-    epsilon = 1e-15
-    pred = sp.maximum(epsilon, pred)
-    pred = sp.minimum(1-epsilon, pred)
-    ll = sum(act*sp.log(pred) + sp.subtract(1,act)*sp.log(sp.subtract(1,pred)))
-    ll = ll * -1.0/len(act)
-    return ll
+def multi_logloss(act, pred):
+    N = len(pred)
+
+    s = 0
+    for i in range(N):
+        s += act[i] * sp.log(pred[i])
+
+    return sum(s) * (-1.0/N)
 
 def prepare_data(data_file):
     for name, series in data_file.iteritems():
         if series.dtype == 'O':
             # Encode input values as an enumerated type or categorical variable
             data_file[name], tmp_indexer = pd.factorize(data_file[name])
+            pass
         elif len(data_file[series.isnull()]) > 0:
             # NaN variables. It's like missing data
             data_file.loc[series.isnull(), name] = -999
@@ -43,21 +49,26 @@ def load_file(path, drop_attr=[]):
     return in_file
 
 
-def data_fold(df, target, k, shuffle=False):
+def data_fold(df, target, k, method='strat', shuffle=True):
     n_labels = df.axes[1].size
-    source = df.values
 
-    kf = KFold(len(source), k, shuffle)
+    print 'Folding data'
+    if method == 'strat':
+        m = StratifiedShuffleSplit(target, k, test_size=0.1)
+    else:
+        m = KFold(len(target), k, shuffle)
 
-    n_source = pd.get_dummies(df)
+    #n_source = pd.get_dummies(df)
+    #print n_source.columns
+    n_source = df
 
     folds = []
-    for train_indices, trial_indices in kf:
+    for train_indices, trial_indices in m:
         # This is the way to access values in a pandas DataFrame
         folds.append({'train': {'source': n_source.ix[train_indices, :],
-                                'target': target[train_indices]},
+            'target': target[train_indices]},
                       'trial': {'source': n_source.ix[trial_indices, :],
-                                'target': target[trial_indices]}})
+                          'target': target[trial_indices]}})
     return folds
 
 
@@ -67,29 +78,42 @@ def learn_and_test(cls, folds):
     loss = []
 
     lb = LabelBinarizer()
-    lb.fit(['Adoption','Died','Euthanasia','Return_to_owner','Transfer'])
+    #lb.fit(['Adoption','Died','Euthanasia','Return_to_owner','Transfer'])
+    lb.fit(folds[0]['trial']['target'])
 
     for fold in folds:
-        print 'Fold', idx+1
+        print '\nFold', idx+1
         print 'Fitting'
         cls.fit(fold['train']['source'], fold['train']['target'])
 
         print 'Predicting'
-        pred_classes = cls.predict_proba(fold['trial']['source'])
+        pred_classes = cls.predict_proba(fold['trial']['source'].values)
         actual_classes = lb.transform(fold['trial']['target'])
 
-        ll = logloss(actual_classes, pred_classes)
-        ll2 = log_loss(actual_classes, pred_classes)
-        loss.append(ll2)
-        print ll, sum(ll), ll2
+        #ll = multi_logloss(actual_classes, pred_classes)
+        ll = log_loss(actual_classes, pred_classes)
+        loss.append(ll)
+        print ll
 
         best = (loss[idx] if loss[idx] <  best else best)
-        worst = (loss[idx] if loss[idx] > worst else best)
+        worst = (loss[idx] if loss[idx] > worst else worst)
         idx += 1
 
-    return {'best': str(best).zfill(15), 'worst': str(worst).zfill(15), 'mean': str(mean(loss)).zfill(15),
-            'variance': str(var(loss)).zfill(15), 'median': str(median(loss)).zfill(15),
-            'average': str(average(loss)).zfill(15), 'log-loss': loss}
+    return {'best': str(best).zfill(15),
+            'worst': str(worst).zfill(15),
+            'mean': str(mean(loss)).zfill(15),
+            'variance': str(var(loss)).zfill(15)}
+
+
+def export_run(f, r, R=0):
+    print "Writing results"
+    f.write(str(R).zfill(4) + ',' +
+            str(r['best']) + ',' +
+            str(r['worst']) + ',' +
+            str(r['mean']) + ',' +
+            str(r['variance']) + ',' +
+            str(r['time']) + "\n")
+    f.flush()
 
 
 def main(classifier_name):
@@ -106,31 +130,56 @@ def main(classifier_name):
     train_set = pd.read_csv(train_file)
 
     # feature selection
-    '''
-    cls_col = ['AgeuponOutcome', 'IsNamed', 'IsIntact', 'BreedA', 'AnimalType']
-    cls_col = ['AnimalID', 'Name', 'DateTime', 'OutcomeType', 'OutcomeSubtype',
+    # Feature selection by Weka without transformation
+    cls_col01 = ['AgeuponOutcome', 'IsNamed', 'IsIntact', 'BreedA', 'AnimalType']
+
+    # All available columns
+    cls_col02 = ['AnimalID', 'Name', 'DateTime', 'OutcomeType', 'OutcomeSubtype',
             'AnimalType', 'SexuponOutcome', 'AgeuponOutcome', 'Breed', 'Color',
             'IsNamed', 'Date', 'Time', 'Gender', 'IsIntact', 'AgeInDays',
             'AgeInCategory', 'BreedA', 'BreedB', 'IsMix', 'ColorA', 'ColorB',
             'OutcomeTypeEncoded', 'Adoption', 'Died', 'Euthanasia',
             'Return_to_owner', 'Transfer']
-    cls_col = ['ID', 'Name', 'DateTime', 'AnimalType', 'SexuponOutcome',
+
+    # Columns from test dataset
+    cls_col03 = ['ID', 'Name', 'DateTime', 'AnimalType', 'SexuponOutcome',
     'AgeuponOutcome', 'Breed', 'Color', 'IsNamed', 'Date', 'Time', 'Gender',
     'IsIntact', 'AgeInDays', 'AgeInCategory', 'BreedA', 'BreedB', 'IsMix',
     'ColorA', 'ColorB']
-    '''
-    cls_col = ['DateTime', 'AnimalType', 'SexuponOutcome',
+
+    # Sent to kaggle (best logloss 1.22 naive bayes)
+    cls_col04 = ['DateTime', 'AgeuponOutcome', 'Gender', 'IsIntact', 'IsNamed',
+    'BreedA', 'BreedB', 'AnimalType', 'ColorA', 'ColorB']
+
+    # Available columns after transformation
+    cls_col05 = ['DateTime', 'AnimalType', 'SexuponOutcome',
         'AgeuponOutcome', 'Breed', 'Color', 'IsNamed', 'Date', 'Time', 'Gender',
         'IsIntact', 'AgeInDays', 'AgeInCategory', 'BreedA', 'BreedB', 'IsMix',
         'ColorA', 'ColorB']
+
+    # Useful columns
+    cls_col06 = ['AnimalType',
+        'IsNamed', 'Date', 'Time', 'Gender',
+        'IsIntact', 'AgeInDays', 'AgeInCategory', 'BreedA', 'BreedB', 'IsMix',
+        'ColorA', 'ColorB']
+
+    # Feature selection by Weka after transformation 1.09 1.11
+    cls_col07 = ['IsNamed', 'Time', 'IsIntact', 'AgeInDays',
+            'BreedA', 'AgeInCategory', 'AnimalType']
+    # 1.03 1.05
+    cls_col08 = ['IsNamed', 'Time', 'IsIntact', 'AgeInDays']
+
+
     # preparing data to classify
     print "Preparing data"
-    train_outcome = train_set['OutcomeType']
+    train_outcome = train_set['OutcomeTypeEncoded']
 
+    cls_col = cls_col08
     train_set = train_set[cls_col]
     test_set = test_set[cls_col]
-    train_set = prepare_data(train_set)
-    test_set = prepare_data(test_set)
+    full_set = prepare_data(pd.concat([train_set, test_set]))
+    train_set = full_set[:len(train_outcome)]
+    test_set = full_set[len(train_outcome):]
 
     # creating classifier
     if classifier_name == 'randomforest':
@@ -145,9 +194,26 @@ def main(classifier_name):
     elif classifier_name == 'decisiontree':
         print("Decision Tree")
         pass
-    #cls.fit(train_set.values[0::,0:-5:], train_outcome.values[0::, -5::])
+
+
+    print "Preparing folds"
     folds = data_fold(train_set, train_outcome, 10)
-    r = learn_and_test(cls, folds)
+
+    print "Learning and testing folds"
+    st = time()
+    result =  learn_and_test(cls, folds)
+    et = time() - st
+    result.update({'time': str(et)})
+
+    #f = open('1-'+classifier_name + '.txt', 'w')
+    #f.write("N, BEST, WORST, MEAN, MEDIAN, VARIANCE, TIME\n")
+    #export_run(f, result)
+
+    print('Saving output')
+    output = pd.Series(result)
+    output.to_csv('1-'+classifier_name+'.csv', header=False)
+
+
     '''
     print("Fitting")
     cls.fit(train_set.values, train_outcome.values)
