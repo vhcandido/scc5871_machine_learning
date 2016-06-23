@@ -1,3 +1,5 @@
+#!/usr/bin/env python2
+
 import pandas as pd
 import numpy as np
 import scipy as sp
@@ -11,8 +13,11 @@ from sklearn.preprocessing import LabelEncoder, LabelBinarizer
 from sklearn.metrics import log_loss
 
 from sklearn.cross_validation import KFold, StratifiedShuffleSplit
+from xgboost.sklearn import XGBClassifier
+import xgboost as xgb
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier
 
 from numpy import var, average, mean, median
 from math import log
@@ -72,7 +77,7 @@ def data_fold(df, target, k, method='strat', shuffle=True):
     return folds
 
 
-def learn_and_test(cls, folds):
+def learn_and_test(cls, folds, cls_name):
     worst = auc_total = idx = 0
     best = 999999999.0
     loss = []
@@ -84,10 +89,13 @@ def learn_and_test(cls, folds):
     for fold in folds:
         print '\nFold', idx+1
         print 'Fitting'
+        if cls_name == 'xgboost':
+            cls = modelfit(cls, fold['train']['source'],
+                    fold['train']['target'], useTrainCV=False)
         cls.fit(fold['train']['source'], fold['train']['target'])
 
         print 'Predicting'
-        pred_classes = cls.predict_proba(fold['trial']['source'].values)
+        pred_classes = cls.predict_proba(fold['trial']['source'])
         actual_classes = lb.transform(fold['trial']['target'])
 
         #ll = multi_logloss(actual_classes, pred_classes)
@@ -115,6 +123,36 @@ def export_run(f, r, R=0):
             str(r['time']) + "\n")
     f.flush()
 
+
+def modelfit(alg, dtrain, target, useTrainCV=True, cv_folds=10):
+    if useTrainCV:
+        xgb_param = alg.get_xgb_params()
+        xgb_param['num_class'] = 5
+        xgb_param['eval_metrics'] = 'mlogloss'
+        xgtrain = xgb.DMatrix(dtrain.values, label=target.values)
+        #cvresult = xgb.cv(xgb_param, xgtrain, num_boost_round=alg.get_params()['n_estimators'], nfold=cv_folds,
+        cvresult = xgb.cv(xgb_param, xgtrain, num_boost_round=300, nfold=cv_folds,
+            metrics=["mlogloss"], show_progress=True)
+
+        min_ll = cvresult['test-mlogloss-mean'].min()
+        print min_ll
+        est = cvresult.loc[cvresult['test-mlogloss-mean'] == min_ll]['test-mlogloss-mean']
+        print est
+        alg.set_params(n_estimators=est)
+
+    return alg
+
+def run_cls(cls, source, target, cls_name):
+    print "Preparing folds"
+    folds = data_fold(source, target, 10)
+
+    print "Learning and testing folds"
+    st = time()
+    result =  learn_and_test(cls, folds, cls_name)
+    et = time() - st
+    result.update({'time': str(et)})
+
+    return result
 
 def main(classifier_name):
     # relative to each machine
@@ -174,10 +212,11 @@ def main(classifier_name):
     print "Preparing data"
     train_outcome = train_set['OutcomeTypeEncoded']
 
-    cls_col = cls_col08
+    cls_col = cls_col07
     train_set = train_set[cls_col]
     test_set = test_set[cls_col]
     full_set = prepare_data(pd.concat([train_set, test_set]))
+
     train_set = full_set[:len(train_outcome)]
     test_set = full_set[len(train_outcome):]
 
@@ -190,20 +229,29 @@ def main(classifier_name):
         cls = GaussianNB()
     elif classifier_name == 'xgboost':
         print("XGBoost")
-        pass
+
+        cls = XGBClassifier(
+         learning_rate=0.2,
+         n_estimators=63,
+         max_depth=6,
+         min_child_weight=1,
+         gamma=0,
+         subsample=0.75,
+         colsample_bytree=0.85,
+         objective='multi:softprob',
+         scale_pos_weight=1,
+         seed=27)
+
+        #xgb_params = cls.get_xgb_params()
+        #xgb_params['num_class'] = 5
     elif classifier_name == 'decisiontree':
         print("Decision Tree")
         pass
+    elif classifier_name == 'knn':
+        print("Knn")
+        cls = KNeighborsClassifier(n_neighbors = 2000)
 
-
-    print "Preparing folds"
-    folds = data_fold(train_set, train_outcome, 10)
-
-    print "Learning and testing folds"
-    st = time()
-    result =  learn_and_test(cls, folds)
-    et = time() - st
-    result.update({'time': str(et)})
+    result = run_cls(cls, train_set, train_outcome, classifier_name)
 
     #f = open('1-'+classifier_name + '.txt', 'w')
     #f.write("N, BEST, WORST, MEAN, MEDIAN, VARIANCE, TIME\n")

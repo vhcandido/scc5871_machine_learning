@@ -1,3 +1,5 @@
+#!/usr/bin/env python2
+
 import pandas as pd
 import numpy as np
 import scipy as sp
@@ -11,6 +13,8 @@ from sklearn.preprocessing import LabelEncoder, LabelBinarizer
 from sklearn.metrics import log_loss
 
 from sklearn.cross_validation import KFold, StratifiedShuffleSplit
+from xgboost.sklearn import XGBClassifier
+import xgboost as xgb
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.naive_bayes import GaussianNB
 
@@ -48,6 +52,24 @@ def load_file(path, drop_attr=[]):
     #return prepare_data(in_file)
     return in_file
 
+def modelfit(alg, dtrain, target, useTrainCV=True, cv_folds=10):
+    if useTrainCV:
+        xgb_param = alg.get_xgb_params()
+        xgb_param['num_class'] = 5
+        xgb_param['eval_metrics'] = 'mlogloss'
+        xgtrain = xgb.DMatrix(dtrain.values, label=target.values)
+        #cvresult = xgb.cv(xgb_param, xgtrain, num_boost_round=alg.get_params()['n_estimators'], nfold=cv_folds,
+        cvresult = xgb.cv(xgb_param, xgtrain, num_boost_round=400, nfold=cv_folds,
+            metrics=["mlogloss"], show_progress=True)
+
+        min_ll = cvresult['test-mlogloss-mean'].min()
+        print 'Best index: ', min_ll
+        est = cvresult.loc[cvresult['test-mlogloss-mean'] ==
+                min_ll]['test-mlogloss-mean'].index
+        print 'Log loss: ', est
+        alg.set_params(n_estimators=est)
+
+    return alg
 
 def main(classifier_name):
     # relative to each machine
@@ -122,7 +144,21 @@ def main(classifier_name):
         cls = GaussianNB()
     elif classifier_name == 'xgboost':
         print("XGBoost")
-        pass
+
+        cls = XGBClassifier(
+         n_estimators=70,
+         learning_rate=0.2,
+         max_depth=6,
+         min_child_weight=1,
+         gamma=0,
+         subsample=0.75,
+         colsample_bytree=0.85,
+         objective='multi:softprob',
+         scale_pos_weight=1,
+         seed=27)
+
+        # XGBoost optimization
+        cls = modelfit(cls, train_set, train_outcome, useTrainCV=False)
     elif classifier_name == 'decisiontree':
         print("Decision Tree")
         pass
