@@ -91,7 +91,7 @@ def main(dataset, transf, out_file):
 
     if transf['datetime_split']:
         dataset['Date'] = dataset.DateTime.apply(datetime_to_date)
-        #dataset['Date'] -= min(dataset['Date'])
+        dataset['Date'] -= min(dataset['Date'])
         dataset['Time'] = dataset.DateTime.apply(datetime_to_time)
 
     if transf['datetime_to_sec']:
