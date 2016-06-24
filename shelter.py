@@ -5,22 +5,23 @@ import numpy as np
 import scipy as sp
 import pdb
 import sys
-
-from time import time
 import random
 
 from sklearn.preprocessing import LabelEncoder, LabelBinarizer
 from sklearn.metrics import log_loss
-
 from sklearn.cross_validation import KFold, StratifiedShuffleSplit
-from xgboost.sklearn import XGBClassifier
-import xgboost as xgb
+
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
+
+from xgboost.sklearn import XGBClassifier
+import xgboost as xgb
 
 from numpy import var, average, mean, median
 from math import log
+from time import time
 
 # Extracted from https://www.kaggle.com/wiki/LogarithmicLoss
 def multi_logloss(act, pred):
@@ -37,10 +38,9 @@ def prepare_data(data_file):
         if series.dtype == 'O':
             # Encode input values as an enumerated type or categorical variable
             data_file[name], tmp_indexer = pd.factorize(data_file[name])
-            pass
         elif len(data_file[series.isnull()]) > 0:
             # NaN variables. It's like missing data
-            data_file.loc[series.isnull(), name] = -999
+            data_file.loc[series.isnull(), name] = -9999
     return data_file
 
 def load_file(path, drop_attr=[]):
@@ -78,8 +78,7 @@ def data_fold(df, target, k, method='strat', shuffle=True):
 
 
 def learn_and_test(cls, folds, cls_name):
-    worst = auc_total = idx = 0
-    best = 999999999.0
+    idx = 0
     loss = []
 
     lb = LabelBinarizer()
@@ -87,28 +86,23 @@ def learn_and_test(cls, folds, cls_name):
     lb.fit(folds[0]['trial']['target'])
 
     for fold in folds:
-        print '\nFold', idx+1
-        print 'Fitting'
-        if cls_name == 'xgboost':
-            cls = modelfit(cls, fold['train']['source'],
-                    fold['train']['target'], useTrainCV=False)
+        #print '\nFold', idx+1
+        #print 'Fitting'
         cls.fit(fold['train']['source'], fold['train']['target'])
 
-        print 'Predicting'
+        #print 'Predicting'
         pred_classes = cls.predict_proba(fold['trial']['source'])
         actual_classes = lb.transform(fold['trial']['target'])
 
-        #ll = multi_logloss(actual_classes, pred_classes)
+        ll = multi_logloss(actual_classes, pred_classes)
         ll = log_loss(actual_classes, pred_classes)
         loss.append(ll)
-        print ll
+        print 'F %d:\t%f' % (idx+1, ll)
 
-        best = (loss[idx] if loss[idx] <  best else best)
-        worst = (loss[idx] if loss[idx] > worst else worst)
         idx += 1
 
-    return {'best': str(best).zfill(15),
-            'worst': str(worst).zfill(15),
+    return {'best': str(min(loss)).zfill(15),
+            'worst': str(max(loss)).zfill(15),
             'mean': str(mean(loss)).zfill(15),
             'variance': str(var(loss)).zfill(15)}
 
@@ -124,31 +118,34 @@ def export_run(f, r, R=0):
     f.flush()
 
 
-def modelfit(alg, dtrain, target, useTrainCV=True, cv_folds=10):
+def modelfit(xgb_param, dtrain, target, useTrainCV=True, cv_folds=10):
     if useTrainCV:
-        xgb_param = alg.get_xgb_params()
-        xgb_param['num_class'] = 5
-        xgb_param['eval_metrics'] = 'mlogloss'
         xgtrain = xgb.DMatrix(dtrain.values, label=target.values)
         #cvresult = xgb.cv(xgb_param, xgtrain, num_boost_round=alg.get_params()['n_estimators'], nfold=cv_folds,
-        cvresult = xgb.cv(xgb_param, xgtrain, num_boost_round=300, nfold=cv_folds,
-            metrics=["mlogloss"], show_progress=True)
+        cvresult = xgb.cv(xgb_param, xgtrain, num_boost_round=250, nfold=cv_folds,
+                stratified=False, metrics=["mlogloss"], verbose_eval=20)
 
         min_ll = cvresult['test-mlogloss-mean'].min()
         print min_ll
-        est = cvresult.loc[cvresult['test-mlogloss-mean'] == min_ll]['test-mlogloss-mean']
-        print est
-        alg.set_params(n_estimators=est)
+        est = cvresult.loc[cvresult['test-mlogloss-mean'] ==
+                min_ll].index.tolist()[0]
+        print 'Estimators: ', est
 
-    return alg
+    return {'best': str(min_ll).zfill(15),
+            'worst': str(max(cvresult['test-mlogloss-mean'])).zfill(15),
+            'mean': '0'.zfill(15),
+            'variance': str(min('test-mlogloss-mean')).zfill(15)}
 
 def run_cls(cls, source, target, cls_name):
-    print "Preparing folds"
+    print "\nPreparing folds"
     folds = data_fold(source, target, 10)
 
     print "Learning and testing folds"
     st = time()
-    result =  learn_and_test(cls, folds, cls_name)
+    if cls_name == 'xgboost':
+        result = modelfit(cls, source, target, useTrainCV=True)
+    else:
+        result =  learn_and_test(cls, folds, cls_name)
     et = time() - st
     result.update({'time': str(et)})
 
@@ -220,46 +217,96 @@ def main(classifier_name):
     train_set = full_set[:len(train_outcome)]
     test_set = full_set[len(train_outcome):]
 
+    result = []
     # creating classifier
     if classifier_name == 'randomforest':
         print("Random Forest")
-        cls = RandomForestClassifier(n_estimators = 1000, n_jobs=-1)
+        for tree in range(100, 1001, 100):
+            print '\nTrees: %d' % (tree)
+
+            cls = RandomForestClassifier(n_estimators = tree,
+                    criterion='entropy',
+                    max_features=None,
+                    n_jobs=-1)
+            result.append(run_cls(cls, train_set, train_outcome, classifier_name))
+            print result[-1]['mean']
+
     elif classifier_name == 'naivebayes':
         print("Naive Bayes")
         cls = GaussianNB()
+        result.append(run_cls(cls, train_set, train_outcome, classifier_name))
+
     elif classifier_name == 'xgboost':
         print("XGBoost")
+        for dep in range(3,6):
+            for learn in np.arange(0.1,0.35,0.1):
+                print '\nDepth: %d\tL. rate: %f' % (dep, learn)
 
-        cls = XGBClassifier(
-         learning_rate=0.2,
-         n_estimators=63,
-         max_depth=6,
-         min_child_weight=1,
-         gamma=0,
-         subsample=0.75,
-         colsample_bytree=0.85,
-         objective='multi:softprob',
-         scale_pos_weight=1,
-         seed=27)
+                cls = XGBClassifier(
+                 n_estimators=63,
+                 min_child_weight=1,
+                 gamma=0,
+                 scale_pos_weight=1,
+                 seed=27)
+                xgb_param = {
+                        'max_depth': dep,
+                        'eta': learn,
+                        'silent': 1,
+                        'subsample': 0.75,
+                        'colsample_bytree': 1,
+                        'objective': 'multi:softprob',
+                        'num_class': 5,
+                        'eval_metric': 'mlogloss'}
 
-        #xgb_params = cls.get_xgb_params()
-        #xgb_params['num_class'] = 5
+                result.append(run_cls(xgb_param, train_set, train_outcome, classifier_name))
+                print result[-1]['best']
+
     elif classifier_name == 'decisiontree':
         print("Decision Tree")
-        pass
+        for feat in range(4, len(train_set.columns)+1):
+            for dep in range(2, 11):
+                print '\nFeat: %d\tMax depth: %d' % (feat, dep)
+                cls = DecisionTreeClassifier(max_features=feat,
+                        max_depth=dep,
+                        criterion='entropy')
+
+                result.append(run_cls(cls, train_set, train_outcome,
+                    classifier_name))
+
+                result[-1].update({'max_feat':feat,'max_depth':dep})
+                print result[-1]['mean']
+
+        #cls = DecisionTreeClassifier(max_features=None,
+        #        max_depth=3,
+        #        criterion='entropy')
+        #result.append(run_cls(cls, train_set, train_outcome,
+        #    classifier_name))
+        #import pydot
+        #from sklearn.externals.six import StringIO
+        #from sklearn import tree
+        #dot_data = StringIO()
+        #tree.export_graphviz(cls, out_file=dot_data,
+        #        feature_names=train_set.columns,
+        #        class_names=['Adoption','Died','Euthanasia','Return_to_owner','Transfer'],
+        #        filled=True, rounded=True,
+        #        impurity=False)
+        #
+        #graph = pydot.graph_from_dot_data(dot_data.getvalue())
+        #graph.write_pdf("tree.pdf")
+
     elif classifier_name == 'knn':
         print("Knn")
         cls = KNeighborsClassifier(n_neighbors = 2000)
-
-    result = run_cls(cls, train_set, train_outcome, classifier_name)
+        result.append(run_cls(cls, train_set, train_outcome, classifier_name))
 
     #f = open('1-'+classifier_name + '.txt', 'w')
     #f.write("N, BEST, WORST, MEAN, MEDIAN, VARIANCE, TIME\n")
     #export_run(f, result)
 
     print('Saving output')
-    output = pd.Series(result)
-    output.to_csv('1-'+classifier_name+'.csv', header=False)
+    output = pd.DataFrame(result)
+    print output.loc[output['mean']==min(output['mean'])]
+    output.to_csv('1-'+classifier_name+'.csv')
 
 
     '''

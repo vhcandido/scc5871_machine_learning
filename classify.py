@@ -5,21 +5,23 @@ import numpy as np
 import scipy as sp
 import pdb
 import sys
-
-from time import time
 import random
 
 from sklearn.preprocessing import LabelEncoder, LabelBinarizer
 from sklearn.metrics import log_loss
-
 from sklearn.cross_validation import KFold, StratifiedShuffleSplit
-from xgboost.sklearn import XGBClassifier
-import xgboost as xgb
+
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
+
+from xgboost.sklearn import XGBClassifier
+import xgboost as xgb
 
 from numpy import var, average, mean, median
 from math import log
+from time import time
 
 # Extracted from https://www.kaggle.com/wiki/LogarithmicLoss
 def multi_logloss(act, pred):
@@ -52,24 +54,41 @@ def load_file(path, drop_attr=[]):
     #return prepare_data(in_file)
     return in_file
 
-def modelfit(alg, dtrain, target, useTrainCV=True, cv_folds=10):
+def modelfit(xgb_param, dtrain, target, useTrainCV=True, cv_folds=10):
     if useTrainCV:
-        xgb_param = alg.get_xgb_params()
-        xgb_param['num_class'] = 5
-        xgb_param['eval_metrics'] = 'mlogloss'
         xgtrain = xgb.DMatrix(dtrain.values, label=target.values)
         #cvresult = xgb.cv(xgb_param, xgtrain, num_boost_round=alg.get_params()['n_estimators'], nfold=cv_folds,
-        cvresult = xgb.cv(xgb_param, xgtrain, num_boost_round=400, nfold=cv_folds,
-            metrics=["mlogloss"], show_progress=True)
+        cvresult = xgb.cv(xgb_param, xgtrain, num_boost_round=250, nfold=cv_folds,
+                stratified=False, metrics=["mlogloss"], verbose_eval=20)
 
         min_ll = cvresult['test-mlogloss-mean'].min()
-        print 'Best index: ', min_ll
+        print min_ll
         est = cvresult.loc[cvresult['test-mlogloss-mean'] ==
-                min_ll]['test-mlogloss-mean'].index
-        print 'Log loss: ', est
-        alg.set_params(n_estimators=est)
+                min_ll].index.tolist()[0]
+        print 'Estimators: ', est
 
-    return alg
+    return est
+
+def run_cls(cls, source, target, test_set, cls_name):
+    if cls_name == 'xgboost':
+        n = modelfit(cls, source, target, useTrainCV=True)
+        #n = 70
+
+        xgtrain = xgb.DMatrix(source, target)
+        xgtest = xgb.DMatrix(test_set)
+
+        mdl = xgb.train(cls, xgtrain, num_boost_round=n+1)
+        predictions = mdl.predict(xgtest)
+
+        print predictions
+        #pdb.set_trace()
+        return predictions
+    else:
+        print("Fitting")
+        cls.fit(source.values, target.values)
+        print("Classifying")
+        predictions = cls.predict_proba(test_set.values)
+        return predictions
 
 def main(classifier_name):
     # relative to each machine
@@ -128,7 +147,7 @@ def main(classifier_name):
     print "Preparing data"
     train_outcome = train_set['OutcomeTypeEncoded']
 
-    cls_col = cls_col08
+    cls_col = cls_col06
     train_set = train_set[cls_col]
     test_set = test_set[cls_col]
     full_set = prepare_data(pd.concat([train_set, test_set]))
@@ -145,31 +164,36 @@ def main(classifier_name):
     elif classifier_name == 'xgboost':
         print("XGBoost")
 
-        cls = XGBClassifier(
-         n_estimators=70,
-         learning_rate=0.2,
-         max_depth=6,
-         min_child_weight=1,
-         gamma=0,
-         subsample=0.75,
-         colsample_bytree=0.85,
-         objective='multi:softprob',
-         scale_pos_weight=1,
-         seed=27)
+        #cls = XGBClassifier(
+        # n_estimators=70,
+        # learning_rate=0.2,
+        # max_depth=6,
+        # min_child_weight=1,
+        # gamma=0,
+        # subsample=0.75,
+        # colsample_bytree=0.85,
+        # objective='multi:softprob',
+        # scale_pos_weight=1,
+        # seed=27)
 
-        # XGBoost optimization
-        cls = modelfit(cls, train_set, train_outcome, useTrainCV=False)
+        cls = {
+                'max_depth': 6,
+                'eta': 0.125,
+                'silent': 1,
+                'subsample': 1,
+                'colsample_bytree': 1,
+                'objective': 'multi:softprob',
+                'num_class': 5,
+                'eval_metric': 'mlogloss'}
+
     elif classifier_name == 'decisiontree':
         print("Decision Tree")
-        pass
+        cls = DecisionTreeClassifier(max_features=4,
+                max_depth=5,
+                criterion='entropy')
 
+    predictions = run_cls(cls, train_set, train_outcome, test_set, classifier_name)
 
-    print("Fitting")
-    cls.fit(train_set.values, train_outcome.values)
-    #cls.fit(total_set[:len(train_set)], train_outcome.values)
-    print("Classifying")
-    predictions = cls.predict_proba(test_set.values)
-    #predictions = cls.predict_proba(total_set[len(train_set):])
 
     # saving output
     print("Saving output")
